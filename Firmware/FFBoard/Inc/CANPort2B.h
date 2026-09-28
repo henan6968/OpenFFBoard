@@ -13,7 +13,7 @@
 #if defined(CANTYPE_2B)
 class CANPort;
 class CANPort_2B : public CANPort, public CommandHandler,public CanHandler{
-	enum class CanPort_commands : uint32_t {speed,send,len,test,txresult,status,fastsend,pins,loopback,normal,txactivity,clocks,onetx,brklo,rxtest,selftest,listen};
+	enum class CanPort_commands : uint32_t {speed,send,len,test,txresult,status,fastsend,pins,loopback,normal,txactivity,clocks,onetx,brklo,rxtest,selftest,listen,vescping};
 public:
 	CANPort_2B(CAN_HandleTypeDef &hcan,const CANPortHardwareConfig& presets,const OutputPin* silentPin=nullptr,uint8_t instance = 0);
 	virtual ~CANPort_2B();

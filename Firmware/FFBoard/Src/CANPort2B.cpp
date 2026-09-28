@@ -52,6 +52,7 @@ void CANPort_2B::registerCommands(){
 	registerCommand("rxtest", CanPort_commands::rxtest, "DIAG: sample CAN1_RX pin while sending", CMDFLAG_GET);
 	registerCommand("selftest", CanPort_commands::selftest, "DIAG: internal loopback TX/RX test, transceiver bypassed", CMDFLAG_GET);
 	registerCommand("listen", CanPort_commands::listen, "DIAG: listen-only 10s, report whether peer transmits (REC)", CMDFLAG_GET);
+	registerCommand("vescping", CanPort_commands::vescping, "DIAG: send VESC COMM_PING_CAN frames (VESC must answer)", CMDFLAG_GET);
 }
 
 void CANPort_2B::saveFlash(){
@@ -879,6 +880,70 @@ CommandStatus CANPort_2B::command(const ParsedCommand& cmd,std::vector<CommandRe
 			replies.emplace_back(std::string("VERDICT=PEER_SILENT: 本次窗口内没收到帧 -> 对端没在总线上发言(或收发器待机). 可连续调用累积观察"));
 		}
 		replies.emplace_back((int64_t)rec1);
+		break;
+	}
+	case CanPort_commands::vescping:
+	{
+		// 让 F407 扮演 VESC Tool 去 ping VESC。
+		// 依据（厂商固件 comm_can.c comm_can_ping()）：
+		//   buffer[0] = appconf->controller_id;
+		//   comm_can_transmit_eid_replace(id | ((uint32_t)CAN_PACKET_PING << 8), buffer, 1, true, 0);
+		// 即扩展 ID = (17<<8)|id，payload = 发送方自己的 controller_id。
+		if(!active){ start(); }
+		// 关键：先彻底清 bus-off。bus-off 的节点【发不出帧】，
+		// 不清的话这个测试就是无效的（我上一次就踩了这个坑）。
+		HAL_CAN_Stop(hcan);
+		HAL_CAN_ResetError(hcan);
+		HAL_CAN_Start(hcan);
+		HAL_CAN_ResetError(hcan);
+		HAL_Delay(5);
+		uint32_t recBefore = (hcan->Instance->ESR >> 8) & 0xFF;
+		uint32_t mcrOn = hcan->Instance->MCR;
+		uint32_t boffBefore = (hcan->Instance->ESR >> 2) & 1;
+
+		CAN_tx_msg msg;
+		memset(&msg, 0, sizeof(msg));
+		msg.header.id = ((uint32_t)17 << 8) | 108u;   // CAN_PACKET_PING | VESC controller_id
+		msg.header.length = 1;
+		msg.header.extId = true;
+		msg.data[0] = 108;
+		sendMessage(msg);
+		HAL_Delay(2);
+		CAN_tx_msg msg2;
+		memset(&msg2, 0, sizeof(msg2));
+		msg2.header.id = ((uint32_t)17 << 8) | 0u;
+		msg2.header.length = 1;
+		msg2.header.extId = true;
+		msg2.data[0] = 108;
+		sendMessage(msg2);
+
+		uint32_t tsrAfterSend = hcan->Instance->TSR;
+		uint32_t recAfter = recBefore;
+		for(int i = 0; i < 20; i++){
+			HAL_Delay(20);
+			uint32_t r = (hcan->Instance->ESR >> 8) & 0xFF;
+			if(r > recAfter){ recAfter = r; }
+		}
+
+		char buf[300];
+		uint32_t tecAfter = hcan->Instance->ESR & 0xFF;
+		snprintf(buf, sizeof(buf),
+			"cleared busoff(was %lu) MCR=0x%08lX | sent 2x PING eid=(17<<8)|id payload=108 | TSR=0x%08lX | REC %lu -> %lu | TEC=%lu LEC=%lu BOFF=%lu",
+			(unsigned long)boffBefore, (unsigned long)mcrOn,
+			(unsigned long)tsrAfterSend,
+			(unsigned long)recBefore, (unsigned long)recAfter,
+			(unsigned long)tecAfter,
+			(unsigned long)((hcan->Instance->ESR >> 4) & 7),
+			(unsigned long)((hcan->Instance->ESR >> 2) & 1));
+		replies.emplace_back(std::string(buf));
+		if(recAfter > recBefore){
+			replies.emplace_back(std::string("VERDICT=PEER_REPLIED: 对端回了帧"));
+		}else if(tecAfter >= 8){
+			replies.emplace_back(std::string("VERDICT=NO_REPLY: 对端回了 0 帧，且我方发送报错(TEC>=8) -> 无人 ACK"));
+		}else{
+			replies.emplace_back(std::string("VERDICT=SENT_NO_REPLY: 帧已发出(TEC=0)但对端不回 -> VESC 不在运行/不在总线上"));
+		}
+		replies.emplace_back((int64_t)recAfter);
 		break;
 	}
 	// =====================================================
