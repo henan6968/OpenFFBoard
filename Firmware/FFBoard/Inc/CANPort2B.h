@@ -13,7 +13,7 @@
 #if defined(CANTYPE_2B)
 class CANPort;
 class CANPort_2B : public CANPort, public CommandHandler,public CanHandler{
-	enum class CanPort_commands : uint32_t {speed,send,len};
+	enum class CanPort_commands : uint32_t {speed,send,len,test,txresult,status,fastsend,pins,loopback,normal,txactivity,clocks,onetx,brklo,rxtest,selftest,listen};
 public:
 	CANPort_2B(CAN_HandleTypeDef &hcan,const CANPortHardwareConfig& presets,const OutputPin* silentPin=nullptr,uint8_t instance = 0);
 	virtual ~CANPort_2B();
@@ -41,6 +41,7 @@ public:
 	void canTxCpltCallback(CANPort *port,uint32_t mailbox) override;
 	void canTxAbortCallback(CANPort *port,uint32_t mailbox) override;
 	void canErrorCallback(CANPort *port, uint32_t code) override;
+	void canRxPendCallback(CANPort *port,CAN_rx_msg& msg) override;
 
 	// Config
 
@@ -65,6 +66,14 @@ private:
 	bool active = false;
 
 	uint32_t lastSentTime = 0;
+
+	// --- TrueGrip 诊断用：环回自测接收缓存 ---
+	bool testMode = false;
+	bool rxflag = false;
+	uint8_t rxbuf[8] = {0};
+	uint32_t rxlen = 0;
+	uint32_t rxid = 0;
+	uint32_t rxcnt = 0;
 
 	static const uint32_t sendTimeout = 20;
 

@@ -157,6 +157,14 @@ _siccmram = LOADADDR(.ccmram);
   . = ALIGN(4);
   _eccmram = .;       /* create a global symbol at ccmram end */
   } >CCMRAM
+  /* TrueGrip: 不初始化区域（硬故障现场记录用，复位后内容保留） */
+  . = ALIGN(4);
+  .noinit (NOLOAD) :
+  {
+    *(.noinit)
+    *(.noinit*)
+  } >RAM
+
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);
   .bss :

@@ -43,7 +43,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+// TrueGrip: 硬故障现场记录（可用 ST-Link 在任何情况下读出）
+// [0]=magic [1]=CFSR [2]=HFSR [3]=MMFAR [4]=BFAR [5]=ICSR [6]=LR [7]=faultPC [8]=faultLR [9]=xPSR
+volatile uint32_t tg_faultrec[10] __attribute__((section(".noinit")));
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -109,6 +111,28 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
+	// TrueGrip 诊断：把故障现场写进 RAM，即使 USB 控制台死了也能用 ST-Link 读出来
+	extern volatile uint32_t tg_faultrec[10];
+	tg_faultrec[0] = 0x54474654; // 'TGFT'	tg_faultrec[1] = SCB->CFSR;
+	tg_faultrec[2] = SCB->HFSR;
+	tg_faultrec[3] = SCB->MMFAR;
+	tg_faultrec[4] = SCB->BFAR;
+	tg_faultrec[5] = SCB->ICSR;
+	uint32_t lr;
+	__asm volatile ("mov %0, lr" : "=r" (lr));
+	tg_faultrec[6] = lr;
+	if ((lr & 0x4U) == 0U) {
+		// 异常发生在 线程模式(MSP)
+		volatile uint32_t *sp = (volatile uint32_t *)__get_MSP();
+		tg_faultrec[7] = sp[6]; // 出错时的 PC
+		tg_faultrec[8] = sp[5]; // 出错时的 LR
+		tg_faultrec[9] = sp[7]; // xPSR
+	} else {
+		volatile uint32_t *sp = (volatile uint32_t *)__get_PSP();
+		tg_faultrec[7] = sp[6];
+		tg_faultrec[8] = sp[5];
+		tg_faultrec[9] = sp[7];
+	}
 	HAL_GPIO_WritePin(LED_ERR_GPIO_Port, LED_ERR_Pin, GPIO_PIN_SET);
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
