@@ -49,6 +49,8 @@ public:
 	UART_InitTypeDef& getConfig();
 
 	bool isReserved(){return this->device != nullptr;}
+	/** True when this exact device is the one holding the port. */
+	bool isOwnedBy(UARTDevice* candidate){return this->device == candidate;}
 	bool reservePort(UARTDevice* device);
 	bool freePort(UARTDevice* device);
 

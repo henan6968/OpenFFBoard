@@ -196,7 +196,7 @@ public:
 private:
 	enum class VescUART_commands : uint32_t {
 		errorflags, vescstate, voltage, encrate, pos, torque, forceposread, useencoder, offset,
-		crcerrors, uarterrors, fwversion, hwname, protostats
+		crcerrors, uarterrors, fwversion, hwname, protostats, txcount, rxcount
 	};
 
 	uint8_t instance;
@@ -215,6 +215,9 @@ private:
 	volatile uint32_t lastVescResponse = 0;	//!< tick of the last valid VESC packet
 	volatile uint32_t crcErrors = 0;
 	volatile uint32_t formatErrors = 0;
+	volatile uint32_t txPackets = 0;		//!< packets put on the wire
+	volatile uint32_t txFailures = 0;		//!< transmits the HAL refused
+	volatile uint32_t rxBytes = 0;			//!< raw bytes seen by the USART
 	char hwName[VESCUART_HWNAME_SIZE] = {0};
 	volatile uint8_t fwMajor = 0;
 	volatile uint8_t fwMinor = 0;

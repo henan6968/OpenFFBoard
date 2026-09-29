@@ -342,6 +342,7 @@ void VescUART::saveFlashOffset() {
  * itself lives in parseRxBuffer().
  */
 void VescUART::uartRcv(char& buf) {
+	rxBytes++;
 	if (uartport != nullptr) {
 		uartport->registerInterrupt();
 	}
@@ -666,7 +667,11 @@ void VescUART::sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len) {
 	txBuf[ind++] = (char) (crc & 0xFF);
 	txBuf[ind++] = 0x03;			// Stop byte
 
-	uartport->transmit(txBuf, (uint16_t) ind, 100);
+	if (uartport->transmit(txBuf, (uint16_t) ind, 100)) {
+		txPackets++;
+	} else {
+		txFailures++;
+	}
 	uartport->giveSemaphore(true);
 }
 
@@ -770,6 +775,8 @@ void VescUART::registerCommands() {
 	// cmdDef->flags & (GET|SET|INFOSTRING|GETADR|SETADR) and CMDFLAG_DEBUG is not in
 	// that mask, so a debug-only flag combination silently never produces a reply.
 	registerCommand("protostats", VescUART_commands::protostats, "UART protocol statistics (crc:frame)", CMDFLAG_GET);
+	registerCommand("txcount", VescUART_commands::txcount, "Packets transmitted (ok:refused)", CMDFLAG_GET);
+	registerCommand("rxcount", VescUART_commands::rxcount, "Raw bytes received from the VESC", CMDFLAG_GET);
 }
 
 CommandStatus VescUART::command(const ParsedCommand& cmd, std::vector<CommandReply>& replies) {
@@ -809,9 +816,21 @@ CommandStatus VescUART::command(const ParsedCommand& cmd, std::vector<CommandRep
 			replies.emplace_back((int32_t) (lastTorque * 10000));
 		break;
 
+	case VescUART_commands::txcount:
+		if (cmd.type == CMDtype::get) {
+			replies.emplace_back((uint32_t) this->txPackets);
+			replies.emplace_back((uint32_t) this->txFailures);
+		}
+		break;
+
+	case VescUART_commands::rxcount:
+		if (cmd.type == CMDtype::get)
+			replies.emplace_back((uint32_t) this->rxBytes);
+		break;
+
 	case VescUART_commands::forceposread:
 		if (cmd.type == CMDtype::get) {
-			if (uartport != nullptr && uartport->isReserved()
+			if (uartport != nullptr && uartport->isOwnedBy(this)
 					&& state >= VescUARTState::VESC_STATE_COMPATIBLE) {
 				doAskGetValue();
 			}
@@ -894,8 +913,11 @@ void VescUART::Run() {
 		lastTick = now;
 
 		// Axis::setDrvType() builds the new driver before destroying the old one, so
-		// motor_uart may still have been owned at construction time. Keep trying.
-		if (!uartport->isReserved()) {
+		// motor_uart may still have been owned by the previous driver at
+		// construction time. isReserved() is not enough here: it is also true when
+		// somebody ELSE holds the port, which is exactly the case that needs the
+		// retry.
+		if (uartport != nullptr && !uartport->isOwnedBy(this)) {
 			acquirePort();
 		}
 
