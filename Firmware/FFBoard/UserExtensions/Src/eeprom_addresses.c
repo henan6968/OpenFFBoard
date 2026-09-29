@@ -175,6 +175,11 @@ const uint16_t VirtAddVarTab[NB_OF_VAR] =
 	ADR_VESC3_CANID, //0-8 AxisCanID, 8-16 VescCanId
 	ADR_VESC3_DATA, //0-2 can speed, 3 useVescEncoder
 	ADR_VESC3_OFFSET, //16b offset
+// VESC over UART section
+	ADR_VESCUART1_DATA, //0 use uart encoder
+	ADR_VESCUART1_OFFSET, //16b offset
+	ADR_VESCUART2_DATA, //0 use uart encoder
+	ADR_VESCUART2_OFFSET, //16b offset
 //MT Encoder
 	ADR_MTENC_OFS,
 	ADR_MTENC_CONF1,
@@ -375,6 +380,11 @@ const uint16_t exportableFlashAddresses[NB_EXPORTABLE_ADR] =
 	ADR_VESC3_CANID, //0-8 AxisCanID, 8-16 VescCanId
 	ADR_VESC3_DATA, //0-2 can speed, 3 useVescEncoder
 	ADR_VESC3_OFFSET, //16b offset
+// VESC over UART section
+	ADR_VESCUART1_DATA, //0 use uart encoder
+	ADR_VESCUART1_OFFSET, //16b offset
+	ADR_VESCUART2_DATA, //0 use uart encoder
+	ADR_VESCUART2_OFFSET, //16b offset
 //MT Encoder
 	ADR_MTENC_OFS,
 	ADR_MTENC_CONF1,

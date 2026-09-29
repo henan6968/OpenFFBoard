@@ -12,6 +12,7 @@
 #include "TMC4671.h"
 #include "MotorPWM.h"
 #include "VescCAN.h"
+#include "VescUART.h"
 #include "MotorSimplemotion.h"
 #include "RmdMotorCAN.h"
 
@@ -50,6 +51,10 @@ const std::vector<class_entry<MotorDriver>> MotorDriver::all_drivers =
 #ifdef RMDCAN
 	add_class<RmdMotorCAN1,MotorDriver>(11),
 	add_class<RmdMotorCAN2,MotorDriver>(12),
+#endif
+#ifdef VESC_UART
+	add_class<VescUART_1,MotorDriver>(13),
+	add_class<VescUART_2,MotorDriver>(14),
 #endif
 };
 

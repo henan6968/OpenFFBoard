@@ -10,6 +10,7 @@
 #include "TMC4671.h"
 #include "MotorPWM.h"
 #include "VescCAN.h"
+#include "VescUART.h"
 #include "ODriveCAN.h"
 #include "MotorSimplemotion.h"
 #include "RmdMotorCAN.h"
@@ -53,6 +54,9 @@ const std::vector<class_entry<MotorDriver>> Axis::axis1_drivers =
 #ifdef RMDCAN
 	add_class<RmdMotorCAN1,MotorDriver>(11),
 #endif
+#ifdef VESC_UART
+	add_class<VescUART_1,MotorDriver>(13),
+#endif
 };
 
 /**
@@ -76,6 +80,9 @@ const std::vector<class_entry<MotorDriver>> Axis::axis2_drivers =
 #endif
 #ifdef RMDCAN
 	add_class<RmdMotorCAN2,MotorDriver>(12),
+#endif
+#ifdef VESC_UART
+	add_class<VescUART_2,MotorDriver>(14),
 #endif
 //#ifdef SIMPLEMOTION
 //	add_class<MotorSimplemotion2,MotorDriver>(10), // TODO this likely does not work reliably with a single uart port and multiple devices

@@ -81,6 +81,8 @@ enum class ClassType : uint16_t {
 #define CLSID_MOT_SM2		0x8A
 #define CLSID_MOT_RMD1		0x8B
 #define CLSID_MOT_RMD2		0x8C
+#define CLSID_MOT_VESCUART0	0x8D // VESC over UART (motor_uart) instance 0
+#define CLSID_MOT_VESCUART1	0x8E // VESC over UART (motor_uart) instance 1
 
 // Internal classes
 #define CLSID_AXIS			0xA01

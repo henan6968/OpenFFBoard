@@ -57,6 +57,7 @@
 #define ADS111XANALOG // Requires I2C
 #define UARTCOMMANDS
 #define SIMPLEMOTION // Requires motor gpio pin
+#define VESC_UART // VESC over UART on motor_uart, see VESC_UART_ALT_PORT below
 
 //----------------------
 #define BTNFAILSAFE // Use user button to force board into failsafe mainclass
@@ -77,6 +78,42 @@ extern UART_HandleTypeDef huart1;
 
 extern UART_HandleTypeDef huart3;
 #define UART_PORT_MOTOR huart3 // motor uart port
+
+// ---------------------------------------------------------------------------
+// VESC over UART: which F407 UART is wired to the VESC
+//
+// Default (VESC_UART_ALT_PORT undefined):
+//     motor_uart = USART3  PB10 = TX / PB11 = RX  -> VESC COMM header
+//     VESC speed = appconf.app_uart_baudrate (460800 here)
+//
+// With VESC_UART_ALT_PORT defined:
+//     motor_uart = USART1  PB6  = TX / PB7  = RX  -> VESC "UART2" socket
+//     VESC speed = 115200, fixed by HW_UART_P_BAUD
+//
+// The swap is done here and nowhere else: motor_uart / external_uart are just
+// aliases, so VescUART.cpp, MotorSimplemotion.cpp and cpp_target_config.cpp all
+// compile unchanged and simply follow.
+//
+// Two consequences of defining VESC_UART_ALT_PORT:
+//   * UARTCOMMANDS must be off - UART_CommandInterface() reserves
+//     external_uart (FFBoardMain.h:62) and would otherwise hold USART1, leaving
+//     the VESC driver with no port. The USB CDC console covers the same need.
+//   * SIMPLEMOTION also follows motor_uart onto USART1. It is unused here; if it
+//     is ever needed, give it its own port instead of sharing this one.
+// ---------------------------------------------------------------------------
+//#define VESC_UART_ALT_PORT
+
+#ifdef VESC_UART_ALT_PORT
+	#undef UART_PORT_MOTOR
+	#undef UART_PORT_EXT
+	#define UART_PORT_MOTOR huart1 // USART1 PB6/PB7 -> VESC UART2 socket
+	#define UART_PORT_EXT huart3   // USART3 PB10/PB11, now free
+#else
+	#define UARTCOMMANDS
+#endif
+
+#define SIMPLEMOTION // Requires motor gpio pin
+#define VESC_UART // VESC over UART on motor_uart, see VESC_UART_ALT_PORT above
 
 #define UART_BUF_SIZE 1 // How many bytes to expect via DMA
 

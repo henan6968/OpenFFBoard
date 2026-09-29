@@ -843,15 +843,19 @@ CommandStatus CANPort_2B::command(const ParsedCommand& cmd,std::vector<CommandRe
 		HAL_CAN_ResetError(hcan);
 
 		// 只停留 1.5 秒就返回 —— 避免长时间阻塞把 USB CDC 卡死
+		//
+		// ⚠️ TrueGrip 修正（见 docs/27_CAN不通_硬证据定位.md §7.2）：
+		// 原实现把 rec1 在**进入观察窗口之前**就读了（HAL_Delay 之后立刻读 ESR），
+		// 于是 rec1 永远是 0，VERDICT 恒为 PEER_SILENT —— 这个诊断命令此前毫无价值。
+		// 现在改成：先记录起点，走完 1.5s 观察窗口后再记录终点，用差值判断。
+		uint32_t recBefore = (hcan->Instance->ESR >> 8) & 0xFFu;
+		uint32_t f0 = hcan->Instance->RF0R & 3u;
 		HAL_Delay(1500);
-		uint32_t esrL = hcan->Instance->ESR;
-		uint32_t rec0 = 0, rec1 = (esrL >> 8) & 0xFF, tec1 = esrL & 0xFF;
-		uint32_t f0 = 0, f1 = hcan->Instance->RF0R & 3u, fsr1 = hcan->Instance->RF0R >> 3;
-		int sawTraffic = 0;
-		for(int i = 0; i < 15; i++){
-			if(((hcan->Instance->ESR >> 8) & 0xFF) > 0){ sawTraffic = 1; break; }
-			HAL_Delay(100);
-		}
+		uint32_t rec1 = (hcan->Instance->ESR >> 8) & 0xFFu;
+		uint32_t tec1 = hcan->Instance->ESR & 0xFFu;
+		uint32_t f1 = hcan->Instance->RF0R & 3u;
+		uint32_t fsr1 = hcan->Instance->RF0R >> 3;
+		int sawTraffic = (rec1 != recBefore) || (f1 != f0);
 		(void)sawTraffic;
 
 		// 还原：退出只听、禁用临时过滤器、恢复正常
@@ -869,17 +873,17 @@ CommandStatus CANPort_2B::command(const ParsedCommand& cmd,std::vector<CommandRe
 
 		char buf[280];
 		snprintf(buf, sizeof(buf),
-			"listen-only 1.5s: REC %lu -> %lu | FIFO0 pending %lu -> %lu | FSR=0x%lX | TEC=%lu",
-			(unsigned long)rec0, (unsigned long)rec1,
+			"listen-only 1.5s: REC %lu -> %lu (delta %lu) | FIFO0 pending %lu -> %lu | FSR=0x%lX | TEC=%lu",
+			(unsigned long)recBefore, (unsigned long)rec1, (unsigned long)(rec1 - recBefore),
 			(unsigned long)f0, (unsigned long)f1,
 			(unsigned long)fsr1, (unsigned long)tec1);
 		replies.emplace_back(std::string(buf));
-		if(rec1 > 0){
+		if(rec1 != recBefore || f1 != f0){
 			replies.emplace_back(std::string("VERDICT=PEER_ALIVE: 对端确实在发帧 -> 模块RX通、对端在发、波特率一致"));
 		}else{
 			replies.emplace_back(std::string("VERDICT=PEER_SILENT: 本次窗口内没收到帧 -> 对端没在总线上发言(或收发器待机). 可连续调用累积观察"));
 		}
-		replies.emplace_back((int64_t)rec1);
+		replies.emplace_back((int64_t)(rec1 - recBefore));
 		break;
 	}
 	case CanPort_commands::vescping:

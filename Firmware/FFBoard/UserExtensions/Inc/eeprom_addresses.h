@@ -13,11 +13,11 @@
 
 #include "main.h"
 // Change this to the amount of currently registered variables
-#define NB_OF_VAR 164
+#define NB_OF_VAR 168
 extern const uint16_t VirtAddVarTab[NB_OF_VAR];
 
 // Amount of variables in exportable list
-#define NB_EXPORTABLE_ADR 149
+#define NB_EXPORTABLE_ADR 153
 extern const uint16_t exportableFlashAddresses[NB_EXPORTABLE_ADR];
 
 
@@ -193,6 +193,11 @@ uint16_t EE_ReadVariable(uint16_t VirtAddress, uint16_t* Data) will return 1 if 
 #define ADR_VESC3_CANID 0x3E6 //0-8 AxisCanID, 8-16 VescCanId
 #define ADR_VESC3_DATA 0x3E7 //0-2 can speed, 3 useVescEncoder
 #define ADR_VESC3_OFFSET 0x3E8 //16b offset
+//VESC over UART
+#define ADR_VESCUART1_DATA 0x3F0 //0 use uart encoder, 1..15 free
+#define ADR_VESCUART1_OFFSET 0x3F1 //16b encoder offset 1/100 deg
+#define ADR_VESCUART2_DATA 0x3F2
+#define ADR_VESCUART2_OFFSET 0x3F3
 //MT Encoder
 #define ADR_MTENC_OFS 0x400
 #define ADR_MTENC_CONF1 0x401

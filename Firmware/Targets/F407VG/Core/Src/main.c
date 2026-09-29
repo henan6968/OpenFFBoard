@@ -500,7 +500,14 @@ static void MX_CAN1_Init(void)
   hcan1.Init.TimeSeg1 = CAN_BS1_11TQ;
   hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan1.Init.TimeTriggeredMode = DISABLE;
-  hcan1.Init.AutoBusOff = DISABLE;
+  /* TrueGrip 修改（见 docs/27_CAN不通_硬证据定位.md §7.1）：
+   * 原厂默认 AutoBusOff = DISABLE。后果：F407 上电比 VESC 快 ≈2s，
+   * 开机时 FFB 立刻发 COMM_FW_VERSION，此时 VESC 还没上线 → 无人 ACK →
+   * TEC 累到 256 → bus-off → 因为 ABOM=DISABLE **永不自动恢复**，
+   * 之后哪怕 VESC 完全正常，F407 也一帧都收不到（REC 长期钉 0）。
+   * 改成 ENABLE 后，CAN 控制器在检测到 128 次连续 11 位隐性后自行恢复。
+   * 副作用可忽略：CAN 负载 32%，VESC 掉线时只会周期性重试。 */
+  hcan1.Init.AutoBusOff = ENABLE;
   hcan1.Init.AutoWakeUp = DISABLE;
   hcan1.Init.AutoRetransmission = ENABLE;
   hcan1.Init.ReceiveFifoLocked = DISABLE;
@@ -1264,7 +1271,11 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 460800;
+  // Matches VESCUART_BAUDRATE in VescUART.h. The VESC "UART2" socket is
+  // HW_UART_P_DEV and runs at HW_UART_P_BAUD = 115200; the COMM header would need
+  // appconf.app_uart_baudrate here instead. Set it at boot as well as in the
+  // driver so the port is correct even before the driver is instantiated.
+  huart3.Init.BaudRate = 115200;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
