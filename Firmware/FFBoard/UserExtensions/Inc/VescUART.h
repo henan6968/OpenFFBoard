@@ -101,21 +101,39 @@ extern const uint32_t VESCUART_BAUD_TABLE[VESCUART_BAUD_CANDIDATES];
 // The real limit is not this gate but the VESC's own reply latency: measured on
 // this build the link settles at 333Hz (3ms) no matter how short the gate is.
 #define VESCUART_POS_INTERVAL_MS 2
-// Torque packets are only queued when the request moved by at least this
-// fraction of full scale.
+// Torque packets are only queued when the request moved by at least this fraction
+// of full scale - and the size of that step is something the driver feels, because
+// the VESC turns it into a jump of deadband * l_current_max * Kt.
 //
-// Why: the FFB loop runs at 1kHz and used to queue a packet for *every* change,
-// including one-count changes. A torque packet is 10 bytes = 0.87ms of wire time
-// at 115200 baud, so a 1kHz stream needs 10kB/s out of the 11.5kB/s this link
-// has - the transmit calls then block the driver thread for most of every tick
-// and the encoder polling plus the keepalive get squeezed. 0.5% of full scale is
-// 0.04Nm on this wheel, below the VESC's own current measurement noise, and cuts
-// the packet rate by roughly an order of magnitude while the wheel is moving.
-#define VESCUART_TORQUE_DEADBAND 0.005f
+// Why a deadband at all: the FFB loop runs at 1kHz and used to queue a packet for
+// *every* change, including one-count changes. A torque packet is 10 bytes =
+// 0.87ms of wire time at 115200 baud, so a 1kHz stream needs 10kB/s out of the
+// 11.5kB/s that link has - the transmit calls then block the driver thread for
+// most of every tick and the encoder polling plus the keepalive get squeezed.
+//
+// Why it is baud dependent now: at the original fixed 0.005 one step is
+// 0.005 * 8A * 1.556Nm/A = 0.062Nm. The wheel at rest does not sit on the idle
+// spring, it sits in a cogging valley whose local stiffness is far higher, so every
+// step is a ~0.24 degree hop. That matched the jitter measured at rest (0.22
+// degrees) and, tellingly, it did not shrink when the idle spring was stiffened
+// 2x - the stiffness holding the wheel there is the motor's detent, not the spring.
+// The same staircase is what makes the centring torque feel uneven and the return
+// to centre move in steps. On the fast link the step is therefore cut to 0.0008
+// (0.010Nm, ~0.04 degrees) and the packet rate stays well inside the budget: even
+// a fast turn only moves the command ~7300 counts/s, i.e. ~280 packets/s = 2.8kB/s
+// of the 46kB/s available, and at rest the refresh dominates.
+//
+// The slow value is kept for the 115200 fallback, where the encoder poll already
+// uses most of the link and a tight deadband would starve it again.
+#define VESCUART_TORQUE_DEADBAND_SLOW 0.005f
+#define VESCUART_TORQUE_DEADBAND_FAST 0.0008f
 // A deadbanded update can be missed (semaphore timeout, a link dropout, the
 // driver being restarted). Resend whenever the value on the VESC has been out of
 // date for this long, which bounds the staleness and re-arms its watchdog.
 #define VESCUART_TORQUE_REFRESH_MS 50
+// The same staleness bound on a fast link. 20Hz was audible as stepping on its own
+// once the deadband stopped hiding it, so the fast link refreshes at ~67Hz.
+#define VESCUART_TORQUE_REFRESH_MS_FAST 15
 // A telemetry request that got no reply is retried after this time.
 #define VESCUART_REPLY_TIMEOUT_MS 50
 // Driver thread tick. getPos_f() only raises a flag and this thread performs the

@@ -175,8 +175,13 @@ void VescUART::turn(int16_t power) {
 	// Only spend wire time on a packet that carries new information. The 1kHz FFB
 	// loop moves the torque by a count or two on every tick, and queueing all of
 	// those saturates the 115200 link (10 bytes = 0.87ms of wire time each) and
-	// starves the encoder poll. See VESCUART_TORQUE_DEADBAND.
-	if (fabsf(torque - lastSentTorque) >= VESCUART_TORQUE_DEADBAND) {
+	// starves the encoder poll. See VESCUART_TORQUE_DEADBAND_*.
+	//
+	// The step size is what the driver feels as graininess, so on the fast link it
+	// is cut to 0.0008 (0.010Nm, ~0.04 degrees of shaft movement at this motor's
+	// detent stiffness) instead of the 0.062Nm the 115200 value produces.
+	float deadband = (baudIndex == 0) ? VESCUART_TORQUE_DEADBAND_SLOW : VESCUART_TORQUE_DEADBAND_FAST;
+	if (fabsf(torque - lastSentTorque) >= deadband) {
 		queueTorque(torque);
 	}
 }
@@ -988,8 +993,11 @@ void VescUART::Run() {
 		// A deadbanded update can be missed (a refused transmit, a link dropout,
 		// the driver being recreated). Resending bounds the staleness and carries
 		// the real torque to a VESC that just came back from its own watchdog.
+		// A 20Hz refresh is itself visible as stepping once the deadband stops
+		// masking it, so the fast link refreshes at ~67Hz. See VescUART.h.
+		uint32_t refresh = (baudIndex == 0) ? VESCUART_TORQUE_REFRESH_MS : VESCUART_TORQUE_REFRESH_MS_FAST;
 		if (!torqueQueued && activeMotor && motorReady() && lastSentTorque != lastTorque
-				&& (now - lastTorqueTx >= VESCUART_TORQUE_REFRESH_MS)) {
+				&& (now - lastTorqueTx >= refresh)) {
 			queueTorque(lastTorque);
 		}
 
