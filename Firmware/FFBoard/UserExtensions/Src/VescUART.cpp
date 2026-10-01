@@ -125,9 +125,11 @@ void VescUART::acquirePort() {
  * target already sets up in MX_USART3_UART_Init(). reconfigurePort() is a no-op
  * when the settings match, so this only corrects a port another driver changed.
  */
+const uint32_t VESCUART_BAUD_TABLE[VESCUART_BAUD_CANDIDATES] = { 115200, 460800, 921600 };
+
 void VescUART::configurePort() {
 	UART_InitTypeDef uartconf;
-	uartconf.BaudRate = VESCUART_BAUDRATE;
+	uartconf.BaudRate = VESCUART_BAUD_TABLE[baudIndex % VESCUART_BAUD_CANDIDATES];
 	uartconf.WordLength = UART_WORDLENGTH_8B;
 	uartconf.StopBits = UART_STOPBITS_1;
 	uartconf.Parity = UART_PARITY_NONE;
@@ -797,6 +799,7 @@ void VescUART::registerCommands() {
 	registerCommand("txcount", VescUART_commands::txcount, "Packets transmitted (ok:refused)", CMDFLAG_GET);
 	registerCommand("rxcount", VescUART_commands::rxcount, "Raw bytes received from the VESC", CMDFLAG_GET);
 	registerCommand("current", VescUART_commands::current, "VESC q-axis (torque) current in mA (needs monitorcurrent=1)", CMDFLAG_GET);
+	registerCommand("baud", VescUART_commands::baud, "Link speed in use, from VESCUART_BAUD_TABLE", CMDFLAG_GET);
 	registerCommand("monitorcurrent", VescUART_commands::monitorcurrent, "Add the motor current to the angle poll", CMDFLAG_GET | CMDFLAG_SET);
 }
 
@@ -873,6 +876,11 @@ CommandStatus VescUART::command(const ParsedCommand& cmd, std::vector<CommandRep
 			posOffset = (float) cmd.val / 10000.0;
 			this->saveFlashOffset();
 		}
+		break;
+
+	case VescUART_commands::baud:
+		if (cmd.type == CMDtype::get)
+			replies.emplace_back((uint32_t) VESCUART_BAUD_TABLE[baudIndex % VESCUART_BAUD_CANDIDATES]);
 		break;
 
 	case VescUART_commands::current:
@@ -990,8 +998,21 @@ void VescUART::Run() {
 			if (now - lastFwRequest >= VESCUART_KEEPALIVE_MS) {
 				getFirmwareInfo();
 				lastFwRequest = now;
+
+				// Nothing came back at this speed - try the next candidate. The link
+				// speed is set on the VESC side (appconf.app_uart_baudrate), so a
+				// mismatch would otherwise be unrecoverable from here.
+				if (++baudFailures >= VESCUART_BAUD_PROBE && uartport != nullptr
+						&& uartport->isOwnedBy(this)) {
+					baudFailures = 0;
+					baudIndex = (uint8_t) ((baudIndex + 1) % VESCUART_BAUD_CANDIDATES);
+					configurePort();
+					posValid = false;		// the angle reference has to re-seed
+					pulseErrLed();
+				}
 			}
 		} else if (state >= VescUARTState::VESC_STATE_COMPATIBLE) {
+			baudFailures = 0;
 			// ---- 3. telemetry heartbeat: keeps the angle and voltage alive ----
 			if (!telemetryPending && (!useEncoder || (now - lastTelemetryRequest >= VESCUART_KEEPALIVE_MS))) {
 				askGetValue();

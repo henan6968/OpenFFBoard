@@ -75,8 +75,19 @@
 // Both sockets run the same commands_process_packet() pipeline
 // (app_uartcomm.c:102-107), so only the baud rate differs.
 //
-// Current wiring: UART2 socket -> 115200.
+// Current wiring: the 8-pin COMM header (USART3, PB10/PB11), so the speed is
+// whatever the VESC's appconf.app_uart_baudrate is - changed 2026-10-01.
+//
+// The driver does not hardcode one speed: it tries these in turn until the VESC
+// answers (see Run()). A two sided setting like this is otherwise a trap - a
+// mismatch means a dead link with no way to tell the driver anything, and the fix
+// would be a reflash. Trying them means either end can be changed first, and the
+// speed can later be changed from VESC Tool alone.
 #define VESCUART_BAUDRATE 115200
+#define VESCUART_BAUD_CANDIDATES 3
+extern const uint32_t VESCUART_BAUD_TABLE[VESCUART_BAUD_CANDIDATES];
+// Handshake attempts at one speed before moving to the next.
+#define VESCUART_BAUD_PROBE 2
 
 
 // Talk to the VESC at least this often while the motor is enabled, its own
@@ -224,7 +235,7 @@ private:
 	enum class VescUART_commands : uint32_t {
 		errorflags, vescstate, voltage, encrate, pos, torque, forceposread, useencoder, offset,
 		crcerrors, uarterrors, fwversion, hwname, protostats, txcount, rxcount,
-		current, monitorcurrent
+		current, monitorcurrent, baud
 	};
 
 	uint8_t instance;
@@ -275,6 +286,8 @@ private:
 	bool activeMotor = false;
 	uint32_t lastTorqueSent = 0;
 	uint32_t lastTick = 0;					//!< last VESCUART_TICK_MS boundary
+	volatile uint8_t baudIndex = 0;			//!< which candidate is in use
+	uint8_t baudFailures = 0;				//!< handshakes that timed out at this speed
 
 	volatile bool runThread = true;			//!< cleared by the destructor before suspending
 	bool threadStarted = false;				//!< Start() succeeded, so Suspend() is safe
