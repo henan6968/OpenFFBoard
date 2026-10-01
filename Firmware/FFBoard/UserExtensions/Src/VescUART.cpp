@@ -573,7 +573,17 @@ void VescUART::handlePacket(const uint8_t* payload, uint16_t len) {
 		int32_t ind = 0;
 		uint32_t mask = decodeUint32(data, &ind);
 
-		// Fields are appended in ascending mask bit order, so this order is fixed.
+		// Fields are appended in ascending mask bit order, so this order is fixed:
+		// iq (bit 5), voltage (8), fault (15), angle (16).
+		if (mask & ((uint32_t) 1 << 5)) {
+			if ((datalen - ind) >= 4) {
+				// mc_interface_read_reset_avg_iq(): the mean of the instantaneous
+				// q-axis current over every FOC sample since the previous read, i.e.
+				// over one poll interval. Signed, so it maps onto the commanded
+				// torque directly.
+				motorCurrent = decodeFloat32(data, 1e2, &ind);
+			}
+		}
 		if (mask & ((uint32_t) 1 << 8)) {
 			if ((datalen - ind) >= 2) {
 				voltage = decodeFloat16(data, 1e1, &ind); // Input voltage in V
@@ -711,7 +721,8 @@ void VescUART::getFirmwareInfo() {
 void VescUART::askGetValue() {
 	uint8_t buffer[4];
 	int32_t index = 0;
-	encodeUint32(buffer, (uint32_t) VESCUART_SELECTIVE_MASK, &index);
+	encodeUint32(buffer, monitorCurrent ? (uint32_t) VESCUART_SELECTIVE_MASK_CURRENT
+			: (uint32_t) VESCUART_SELECTIVE_MASK, &index);
 	sendPacket((uint8_t) VescUARTCmd::COMM_GET_VALUES_SELECTIVE, buffer, sizeof(buffer));
 }
 
@@ -785,6 +796,8 @@ void VescUART::registerCommands() {
 	registerCommand("protostats", VescUART_commands::protostats, "UART protocol statistics (crc:frame)", CMDFLAG_GET);
 	registerCommand("txcount", VescUART_commands::txcount, "Packets transmitted (ok:refused)", CMDFLAG_GET);
 	registerCommand("rxcount", VescUART_commands::rxcount, "Raw bytes received from the VESC", CMDFLAG_GET);
+	registerCommand("current", VescUART_commands::current, "VESC q-axis (torque) current in mA (needs monitorcurrent=1)", CMDFLAG_GET);
+	registerCommand("monitorcurrent", VescUART_commands::monitorcurrent, "Add the motor current to the angle poll", CMDFLAG_GET | CMDFLAG_SET);
 }
 
 CommandStatus VescUART::command(const ParsedCommand& cmd, std::vector<CommandReply>& replies) {
@@ -859,6 +872,22 @@ CommandStatus VescUART::command(const ParsedCommand& cmd, std::vector<CommandRep
 		} else if (cmd.type == CMDtype::set) {
 			posOffset = (float) cmd.val / 10000.0;
 			this->saveFlashOffset();
+		}
+		break;
+
+	case VescUART_commands::current:
+		if (cmd.type == CMDtype::get)
+			replies.emplace_back((int32_t) (motorCurrent * 1000.0f));
+		break;
+
+	case VescUART_commands::monitorcurrent:
+		if (cmd.type == CMDtype::get) {
+			replies.emplace_back(monitorCurrent ? 1 : 0);
+		} else if (cmd.type == CMDtype::set) {
+			monitorCurrent = cmd.val != 0;
+			if (!monitorCurrent) {
+				motorCurrent = 0;
+			}
 		}
 		break;
 

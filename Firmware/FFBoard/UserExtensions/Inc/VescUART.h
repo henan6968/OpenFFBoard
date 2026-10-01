@@ -133,6 +133,15 @@
 // VESC appends them in ascending bit order and re-reads the mask with a fresh
 // cursor for every field, so the reply layout is mask, voltage, fault, angle.
 #define VESCUART_SELECTIVE_MASK ((uint32_t)((1u << 16) | (1u << 15) | (1u << 8)))
+// The same request plus the average q-axis current (bit 5, float32 amperes at 1e2).
+// That is the torque producing current and the one worth comparing against the
+// commanded torque. Bit 2 is NOT usable for this: it is
+// mc_interface_read_reset_avg_motor_current(), the filtered *magnitude* of the
+// current vector, unsigned - a signed command compared against it looks like noise.
+// Four extra bytes per reply cost poll rate, so this is only used while
+// vescart.0.monitorcurrent is on. Bit 5 sorts before bits 8/15/16, so it is parsed
+// before them.
+#define VESCUART_SELECTIVE_MASK_CURRENT ((uint32_t)((1u << 16) | (1u << 15) | (1u << 8) | (1u << 5)))
 
 #define FW_MIN_RELEASE ((5 << 16) | (3 << 8) | 51)
 
@@ -214,7 +223,8 @@ public:
 private:
 	enum class VescUART_commands : uint32_t {
 		errorflags, vescstate, voltage, encrate, pos, torque, forceposread, useencoder, offset,
-		crcerrors, uarterrors, fwversion, hwname, protostats, txcount, rxcount
+		crcerrors, uarterrors, fwversion, hwname, protostats, txcount, rxcount,
+		current, monitorcurrent
 	};
 
 	uint8_t instance;
@@ -223,6 +233,8 @@ private:
 	volatile VescUARTState state = VescUARTState::VESC_STATE_UNKNOWN;
 	volatile uint8_t vescErrorFlag = 0;
 	volatile float voltage = 0;				//!< VESC input voltage in V
+	volatile float motorCurrent = 0;		//!< VESC average q-axis (torque) current in A (monitoring only)
+	bool monitorCurrent = false;			//!< also ask for the current in the angle poll
 	volatile float lastPos = 0;				//!< multi turn position, signed turns
 	volatile float prevPos360 = 0;			//!< previous raw 0..360 angle
 	volatile bool posValid = false;			//!< prevPos360 has been seeded by a real sample
