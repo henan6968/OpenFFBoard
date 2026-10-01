@@ -86,7 +86,25 @@
 #define VESCUART_TIMEOUT_MS 1000
 // Minimum spacing between two encoder position requests (500Hz). One full
 // request/reply round trip is ~350us at 460800 baud, so this is very relaxed.
+//
+// The real limit is not this gate but the VESC's own reply latency: measured on
+// this build the link settles at 333Hz (3ms) no matter how short the gate is.
 #define VESCUART_POS_INTERVAL_MS 2
+// Torque packets are only queued when the request moved by at least this
+// fraction of full scale.
+//
+// Why: the FFB loop runs at 1kHz and used to queue a packet for *every* change,
+// including one-count changes. A torque packet is 10 bytes = 0.87ms of wire time
+// at 115200 baud, so a 1kHz stream needs 10kB/s out of the 11.5kB/s this link
+// has - the transmit calls then block the driver thread for most of every tick
+// and the encoder polling plus the keepalive get squeezed. 0.5% of full scale is
+// 0.04Nm on this wheel, below the VESC's own current measurement noise, and cuts
+// the packet rate by roughly an order of magnitude while the wheel is moving.
+#define VESCUART_TORQUE_DEADBAND 0.005f
+// A deadbanded update can be missed (semaphore timeout, a link dropout, the
+// driver being restarted). Resend whenever the value on the VESC has been out of
+// date for this long, which bounds the staleness and re-arms its watchdog.
+#define VESCUART_TORQUE_REFRESH_MS 50
 // A telemetry request that got no reply is retried after this time.
 #define VESCUART_REPLY_TIMEOUT_MS 50
 // Driver thread tick. getPos_f() only raises a flag and this thread performs the
@@ -234,6 +252,8 @@ private:
 	volatile uint32_t lastFwRequest = 0;
 	volatile bool torqueQueued = false;		//!< set by the FFB thread in turn()
 	volatile float pendingTorque = 0;		//!< torque waiting for the driver thread
+	volatile float lastSentTorque = 2.0f;	//!< torque of the last packet that went out (2.0 = none yet)
+	uint32_t lastTorqueTx = 0;				//!< tick of the last torque packet
 	volatile bool posRequest = false;		//!< getPos_f() wants a fresh angle
 
 	// ---- encoder section ----
@@ -253,7 +273,7 @@ private:
 	static uint16_t crc16(const uint8_t* buf, uint32_t len);
 	void acquirePort();						//!< reserve + configure + arm the RX interrupt
 	void configurePort();
-	void sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len);
+	bool sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len);
 	void handlePacket(const uint8_t* payload, uint16_t len);
 	void parseRxBuffer();
 	void decodeEncoderPosition(float newPos);
@@ -263,7 +283,7 @@ private:
 	void askGetValue();
 	void askRotorPos();
 	void doAskGetValue();
-	void setTorqueRel(float torque);
+	bool setTorqueRel(float torque);
 
 	// helpers
 	void queueTorque(float torque);

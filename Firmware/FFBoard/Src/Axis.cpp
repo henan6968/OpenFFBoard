@@ -345,8 +345,15 @@ void Axis::prepareForUpdate(){
 		}
 
 	}else if(abs(scaledEnc) <= 0x7fff) {
-		outOfBounds = false;
-		//ErrorHandler::clearError(outOfBoundsError);
+		if(outOfBounds){
+			// Back inside the range. The out-of-bounds path above stopped the
+			// motor; without this the axis stays dead (zero torque, so no centring
+			// force at all) after a single out-of-range event, because the
+			// clearError() call below is commented out and errorCallback() - the
+			// only place that calls drv->startMotor() - never runs.
+			errorCallback(outOfBoundsError, true);
+			ErrorHandler::clearError(outOfBoundsError);
+		}
 	}
 
 	// On first change to ready start a fade

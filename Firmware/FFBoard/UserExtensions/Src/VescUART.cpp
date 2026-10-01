@@ -169,7 +169,14 @@ void VescUART::turn(int16_t power) {
 		pulseErrLed();
 	}
 	lastTorque = torque;
-	queueTorque(torque);
+
+	// Only spend wire time on a packet that carries new information. The 1kHz FFB
+	// loop moves the torque by a count or two on every tick, and queueing all of
+	// those saturates the 115200 link (10 bytes = 0.87ms of wire time each) and
+	// starves the encoder poll. See VESCUART_TORQUE_DEADBAND.
+	if (fabsf(torque - lastSentTorque) >= VESCUART_TORQUE_DEADBAND) {
+		queueTorque(torque);
+	}
 }
 
 void VescUART::stopMotor() {
@@ -177,6 +184,7 @@ void VescUART::stopMotor() {
 	// then mark the motor inactive (setTorqueRel() refuses to transmit otherwise).
 	this->torqueQueued = false;
 	this->setTorqueRel(0.0);
+	this->lastSentTorque = 0.0;
 	this->lastTorque = 0.0;
 	this->activeMotor = false;
 }
@@ -295,14 +303,15 @@ void VescUART::restoreFlash() {
 	}
 
 	if (Flash_Read(flashAddrs.offset, &dataFlash)) {
+		// Stored as a fraction of one turn in [0,1). That is the branch the boot
+		// reference lives in: decodeEncoderPosition() seeds lastPos from the raw
+		// 0..360 angle, so it is in [0,1) too. Normalising into (-0.5, 0.5]
+		// instead - as this used to - left the centre a whole turn away after every
+		// reboot and the idle spring then drove the wheel a full turn to find it.
+		// floorf() also maps a legacy negative value (-2285 = -0.2285 turns) back
+		// onto its 0.7715 branch, so old flash contents stay correct.
 		this->posOffset = (float) ((int16_t) dataFlash / 10000.0);
-
-		this->posOffset = this->posOffset - (int) this->posOffset; // Remove the multi-turn value
-		bool moreThanHalfTurn = fabs(this->posOffset) > 0.5 ? 1 : 0;
-		if (moreThanHalfTurn) {
-			// if delta is neg, turn is CCW, decrement multi turn pos... else increment it
-			this->posOffset += (this->posOffset > 0) ? -1.0 : 1.0;
-		}
+		this->posOffset -= floorf(this->posOffset);
 	}
 }
 
@@ -315,13 +324,10 @@ void VescUART::saveFlash() {
 }
 
 void VescUART::saveFlashOffset() {
-	// store the -180..180 offset
-	float storedOffset = this->posOffset - (int) this->posOffset; // Remove the multi-turn value
-	bool moreThanHalfTurn = fabs(storedOffset) > 0.5 ? 1 : 0;
-	if (moreThanHalfTurn) {
-		storedOffset += (storedOffset > 0) ? -1.0 : 1.0;
-	}
-
+	// Store the offset as a fraction of one turn in [0,1), the same branch
+	// restoreFlash() and the boot reference use. The multi-turn part is not
+	// meaningful across a reboot: the absolute encoder angle is all we get back.
+	float storedOffset = this->posOffset - floorf(this->posOffset);
 	uint16_t dataFlash = ((int16_t) (storedOffset * 10000) & 0xFFFF);
 	Flash_Write(flashAddrs.offset, dataFlash);
 }
@@ -628,14 +634,14 @@ void VescUART::handlePacket(const uint8_t* payload, uint16_t len) {
  * longest packet we send at 460800 baud. All callers are either the driver
  * thread or a short command handler.
  */
-void VescUART::sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len) {
+bool VescUART::sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len) {
 	if (uartport == nullptr) {
-		return;
+		return false;
 	}
 
 	uint16_t total = (uint16_t) len + 1;
 	if (total == 0 || total > (VESCUART_TX_SIZE - 5)) {
-		return; // Cannot be framed
+		return false; // Cannot be framed
 	}
 
 	// txBuf is shared between the driver thread and the command thread. The port
@@ -647,7 +653,7 @@ void VescUART::sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len) {
 	// contenders are this driver's own thread and a command thread, and a frame is
 	// ~350us at 460800 baud. Nothing on the 1kHz FFB path can end up waiting.
 	if (!uartport->takeSemaphore(true, portMAX_DELAY)) {
-		return;
+		return false;
 	}
 
 	memset(txBuf, 0, VESCUART_TX_SIZE);
@@ -667,26 +673,28 @@ void VescUART::sendPacket(uint8_t cmd, const uint8_t* payload, uint8_t len) {
 	txBuf[ind++] = (char) (crc & 0xFF);
 	txBuf[ind++] = 0x03;			// Stop byte
 
-	if (uartport->transmit(txBuf, (uint16_t) ind, 100)) {
+	bool ok = uartport->transmit(txBuf, (uint16_t) ind, 100);
+	if (ok) {
 		txPackets++;
 	} else {
 		txFailures++;
 	}
 	uartport->giveSemaphore(true);
+	return ok;
 }
 
 /**
  * COMM_SET_CURRENT_REL (84): [84][int32_be(torque * 1e5)], +-1.0 == Motor Current Max.
  */
-void VescUART::setTorqueRel(float torque) {
+bool VescUART::setTorqueRel(float torque) {
 	if (!activeMotor || !motorReady()) {
-		return;
+		return false;
 	}
 
 	uint8_t buffer[4];
 	int32_t index = 0;
 	encodeFloat32(buffer, torque, 1e5, &index);
-	sendPacket((uint8_t) VescUARTCmd::COMM_SET_CURRENT_REL, buffer, sizeof(buffer));
+	return sendPacket((uint8_t) VescUARTCmd::COMM_SET_CURRENT_REL, buffer, sizeof(buffer));
 }
 
 /**
@@ -932,10 +940,20 @@ void VescUART::Run() {
 		if (torqueQueued) {
 			float torque = pendingTorque;
 			torqueQueued = false;
-			if (motorReady() && activeMotor) {
-				setTorqueRel(torque);
+			if (motorReady() && activeMotor && setTorqueRel(torque)) {
 				lastTorqueSent = now;
+				lastTorqueTx = now;
+				lastSentTorque = torque;
 			}
+		}
+
+		// ---- 1b. the value on the VESC must never stay stale ----
+		// A deadbanded update can be missed (a refused transmit, a link dropout,
+		// the driver being recreated). Resending bounds the staleness and carries
+		// the real torque to a VESC that just came back from its own watchdog.
+		if (!torqueQueued && activeMotor && motorReady() && lastSentTorque != lastTorque
+				&& (now - lastTorqueTx >= VESCUART_TORQUE_REFRESH_MS)) {
+			queueTorque(lastTorque);
 		}
 
 		// ---- 2. handshake, then compatibility gate ----
@@ -955,7 +973,10 @@ void VescUART::Run() {
 			// ---- 4. VESC watchdog keepalive ----
 			if (lastTorque != 0.0 && activeMotor && state == VescUARTState::VESC_STATE_READY
 					&& (now - lastTorqueSent >= VESCUART_KEEPALIVE_MS)) {
-				setTorqueRel(lastTorque);
+				if (setTorqueRel(lastTorque)) {
+					lastSentTorque = lastTorque;
+					lastTorqueTx = now;
+				}
 				lastTorqueSent = now;
 			}
 		}
