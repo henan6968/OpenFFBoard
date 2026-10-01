@@ -37,13 +37,28 @@ bool UARTPort::reconfigurePort(UART_InitTypeDef& config){
 		return false;
 	}
 
+	// The single byte RX interrupt is armed almost all of the time, which leaves
+	// the HAL state as BUSY_RX. HAL_UART_Init() then fails with HAL_BUSY and the
+	// hardware silently stays on the old baud rate. That went unnoticed for as long
+	// as nobody changed a rate at runtime - the VESC-UART driver now does (it walks
+	// its baud candidates), and there the failure mode is a dead link that looks
+	// like the other end changed speed. Abort the pending reception first and start
+	// it again afterwards.
+	bool hadRx = waitingForSingleBytes;
+	if (abortReceive()) {
+		hadRx = true;
+	}
+	waitingForSingleBytes = false;
+
 	this->huart.Init = config;
 
-	if(HAL_UART_Init(&this->huart) != HAL_OK){
-		return false;
+	bool ok = (HAL_UART_Init(&this->huart) == HAL_OK);
+
+	if (hadRx) {
+		registerInterrupt();
 	}
 
-	return true;
+	return ok;
 }
 
 UART_InitTypeDef& UARTPort::getConfig(){
