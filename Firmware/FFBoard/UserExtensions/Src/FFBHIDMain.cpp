@@ -138,6 +138,13 @@ void FFBHIDMain::updateControl(){
 		return;
 	}
 
+	// BUTTON_A (PE15) is polled (see FFBHIDMain.h). Rising edge = axis zero request.
+	const bool buttonA = HAL_GPIO_ReadPin(BUTTON_A_GPIO_Port, BUTTON_A_Pin) != GPIO_PIN_RESET;
+	if(buttonA && !this->buttonA_last){
+		control.resetEncoder = true;
+	}
+	this->buttonA_last = buttonA;
+
 	if(control.resetEncoder){
 		control.resetEncoder = false;
 		axes_manager->resetPosZero();
@@ -330,12 +337,9 @@ void FFBHIDMain::usbResume(){
 
 // External interrupt pins
 void FFBHIDMain::exti(uint16_t GPIO_Pin){
-	if(GPIO_Pin == BUTTON_A_Pin){
-		// Button down?
-		if(HAL_GPIO_ReadPin(BUTTON_A_GPIO_Port, BUTTON_A_Pin)){
-			this->control.resetEncoder = true;
-		}
-	}
+	// NOTE: BUTTON_A is no longer EXTI driven (PE15 is polled in updateControl()).
+	// Never compare GPIO_Pin against BUTTON_A_Pin here: it is GPIO_PIN_15, the same
+	// line mask that the encoder Z index (PD15 / EXTI15) delivers.
 #ifdef E_STOP_Pin
 	if(GPIO_Pin == E_STOP_Pin){ // Emergency stop. low active
 //		if(HAL_GPIO_ReadPin(E_STOP_GPIO_Port, E_STOP_Pin) == GPIO_PIN_RESET){

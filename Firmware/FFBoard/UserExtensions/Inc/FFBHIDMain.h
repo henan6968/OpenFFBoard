@@ -151,6 +151,10 @@ private:
 	uint32_t lastUsbReportTick = 0;
 
 	volatile uint32_t lastEstop = 0;
+
+	/* BUTTON_A (PE15) is polled: EXTI15 belongs to ENCODER_Z (PD15).
+	   Active high (internal pulldown); a rising edge requests an axis zero. */
+	bool buttonA_last = false;
 };
 
 #endif /* SRC_FFBWHEEL_H_ */

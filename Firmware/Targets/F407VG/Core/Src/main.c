@@ -1426,9 +1426,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUTTON_A_Pin */
+  /*Configure GPIO pin : BUTTON_A_Pin (PE15) - polled input, active high */
   GPIO_InitStruct.Pin = BUTTON_A_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BUTTON_A_GPIO_Port, &GPIO_InitStruct);
 
@@ -1505,8 +1505,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI2_IRQn, 6, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+  /* EXTI2 dropped: BUTTON_A moved to PE15 and is polled, line 2 has no source */
 
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 13, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
